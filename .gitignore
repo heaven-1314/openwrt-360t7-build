@@ -1,0 +1,6 @@
+openwrt/
+artifacts/
+*.bin
+*.tar.gz
+*.log
+.ccache/

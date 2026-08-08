@@ -1,0 +1,203 @@
+name: Build 360T7 Firmware
+
+on:
+  workflow_dispatch:
+    inputs:
+      clean_cache:
+        description: 'Clean ccache (rebuild from scratch)'
+        required: false
+        default: 'false'
+        type: choice
+        options: ['true', 'false']
+  push:
+    paths:
+      - '.github/workflows/build.yml'
+      - 'config/**'
+      - 'scripts/**'
+
+env:
+  # ── ImmortalWrt source ──
+  IMM_REPO: https://github.com/immortalwrt/immortalwrt.git
+  IMM_BRANCH: master
+  # ── Build target ──
+  TARGET: mediatek
+  SUBTARGET: filogic
+  PROFILE: qihoo_360t7
+
+jobs:
+  build:
+    name: Build ImmortalWrt 360T7
+    runs-on: ubuntu-24.04
+    timeout-minutes: 600
+
+    steps:
+      # ──────────────────────── 1. Environment ────────────────────────
+      - name: Maximize disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /usr/local/share/boost /opt/hostedtoolcache /usr/local/.ghcup \
+            /usr/lib/jvm /usr/lib/firefox /usr/share/swift
+          sudo docker image prune -af 2>/dev/null || true
+          sudo apt-get clean
+          df -h /
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            build-essential clang flex bison g++ gawk gcc-multilib g++-multilib \
+            gettext git libncurses-dev libssl-dev python3-distutils python3-setuptools \
+            rsync unzip zlib1g-dev file wget curl sudo \
+            dwarves ccache jq
+          # dwarves provides pahole — required for CONFIG_DEBUG_INFO_BTF
+          pahole --version || { echo "ERROR: pahole not found, BTF build will fail"; exit 1; }
+
+      - name: Checkout project
+        uses: actions/checkout@v4
+
+      # ──────────────────────── 2. Cache ────────────────────────
+      - name: Generate cache key
+        id: cache-key
+        run: |
+          echo "date=$(date +%Y-%m)" >> $GITHUB_OUTPUT
+          echo "sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Cache ccache
+        if: github.event.inputs.clean_cache != 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ccache-360t7-${{ steps.cache-key.outputs.date }}-${{ steps.cache-key.outputs.sha }}
+          restore-keys: |
+            ccache-360t7-${{ steps.cache-key.outputs.date }}-
+            ccache-360t7-
+
+      - name: Cache toolchain
+        id: cache-tc
+        if: github.event.inputs.clean_cache != 'true'
+        uses: actions/cache@v4
+        with:
+          path: openwrt/tmp
+          key: toolchain-360t7-${{ steps.cache-key.outputs.date }}-${{ env.IMM_BRANCH }}
+          restore-keys: |
+            toolchain-360t7-${{ steps.cache-key.outputs.date }}-
+
+      # ──────────────────────── 3. Clone ImmortalWrt ────────────────────────
+      - name: Clone ImmortalWrt source
+        run: |
+          if [ ! -d openwrt/.git ]; then
+            git clone --depth=1 --branch "$IMM_BRANCH" "$IMM_REPO" openwrt
+          else
+            cd openwrt && git pull --ff-only origin "$IMM_BRANCH"
+          fi
+          cd openwrt
+          echo "## ImmortalWrt commit" >> $GITHUB_STEP_SUMMARY
+          echo "$(git log -1 --format='%H %ci %s')" >> $GITHUB_STEP_SUMMARY
+
+      # ──────────────────────── 4. Custom feeds ────────────────────────
+      - name: Add kenzok8/openwrt-daede feed
+        run: |
+          cd openwrt
+          bash ${{ github.workspace }}/scripts/setup-feeds.sh
+
+      # ──────────────────────── 5. Patch kernel ────────────────────────
+      - name: Patch kernel for BTF + full BPF support
+        run: |
+          cd openwrt
+          bash ${{ github.workspace }}/scripts/patch-kernel.sh
+
+      # ──────────────────────── 6. Configure ────────────────────────
+      - name: Configure (first pass — target + base)
+        run: |
+          cd openwrt
+          # Start with minimal target config
+          cat > .config << 'SEED'
+          CONFIG_TARGET_mediatek=y
+          CONFIG_TARGET_mediatek_filogic=y
+          CONFIG_TARGET_mediatek_filogic_DEVICE_qihoo_360t7=y
+          SEED
+          make defconfig
+
+      - name: Configure (second pass — add user packages)
+        run: |
+          cd openwrt
+          cat ${{ github.workspace }}/config/360t7.seed >> .config
+          make defconfig
+
+      - name: Verify key config options
+        run: |
+          cd openwrt
+          echo "=== Target ==="
+          grep -E "CONFIG_TARGET_mediatek_filogic_DEVICE_qihoo_360t7" .config
+          echo "=== daed packages ==="
+          grep -E "CONFIG_PACKAGE_daed|CONFIG_PACKAGE_dae=|CONFIG_PACKAGE_luci-app-da" .config || echo "WARNING: daed packages missing!"
+          echo "=== BTF in kernel config ==="
+          grep "DEBUG_INFO_BTF" target/linux/mediatek/config-* target/linux/generic/config-* 2>/dev/null || echo "WARNING: BTF not in kernel config!"
+          echo "=== User packages ==="
+          for pkg in turboacc argon statistics adblock-fast; do
+            grep -i "CONFIG_PACKAGE_luci-app-${pkg}" .config || grep -i "CONFIG_PACKAGE_luci-theme-${pkg}" .config || echo "WARNING: ${pkg} missing!"
+          done
+
+      # ──────────────────────── 7. Download ────────────────────────
+      - name: Download sources
+        run: |
+          cd openwrt
+          make download -j$(nproc) V=s 2>&1 | tail -20 || true
+
+      # # ──────────────────────── 8. Build toolchain ────────────────────────
+      # - name: Build toolchain (if not cached)
+      #   if: steps.cache-tc.outputs.cache-hit != 'true'
+      #   run: |
+      #     cd openwrt
+      #     make toolchain/install -j$(nproc) V=s
+
+      # ──────────────────────── 9. Build firmware ────────────────────────
+      - name: Build firmware
+        run: |
+          cd openwrt
+          # Use ccache for faster rebuilds
+          export CCACHE_DIR=~/.ccache
+          # First attempt: parallel build
+          if ! make -j$(nproc) V=s 2>&1 | tee build.log | tail -50; then
+            echo "## Parallel build failed, retrying single-threaded..."
+            # Second attempt: single-threaded for better error visibility
+            make -j1 V=s 2>&1 | tee -a build.log | tail -100
+          fi
+
+      - name: Show build log on failure
+        if: failure()
+        run: |
+          cd openwrt
+          tail -200 build.log 2>/dev/null || true
+
+      # ──────────────────────── 10. Collect artifacts ────────────────────────
+      - name: Collect firmware artifacts
+        if: success()
+        run: |
+          cd openwrt/bin/targets/$TARGET/$SUBTARGET
+          ls -lh *.bin *.manifest *.sha256sums 2>/dev/null || true
+          # Create artifact directory
+          mkdir -p ${{ github.workspace }}/artifacts
+          cp *.bin *.manifest *.sha256sums ${{ github.workspace }}/artifacts/ 2>/dev/null || true
+          # Also copy kernel BTF info
+          cat ${{ github.workspace }}/scripts/patch-kernel.sh > ${{ github.workspace }}/artifacts/KERNEL-BTF-PATCH.txt 2>/dev/null || true
+
+      - name: Upload firmware artifacts
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: immortalwrt-360t7-daed
+          path: artifacts/*
+          retention-days: 30
+          compression-level: 0
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Build Result" >> $GITHUB_STEP_SUMMARY
+          if [ -f openwrt/bin/targets/$TARGET/$SUBTARGET/*360t7*sysupgrade.bin ]; then
+            echo "✅ **SUCCESS** — firmware built!" >> $GITHUB_STEP_SUMMARY
+            ls -lh openwrt/bin/targets/$TARGET/$SUBTARGET/*360t7*.bin >> $GITHUB_STEP_SUMMARY 2>&1
+          else
+            echo "❌ **FAILED** — check build log" >> $GITHUB_STEP_SUMMARY
+          fi
