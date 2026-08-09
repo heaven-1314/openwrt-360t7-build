@@ -14,6 +14,10 @@ env:
   TARGET: mediatek
   SUBTARGET: filogic
 
+concurrency:
+  group: build-360t7
+  cancel-in-progress: true
+
 jobs:
   build:
     name: Build ImmortalWrt 360T7
