@@ -1,28 +1,9 @@
 # ┌─────────────────────────────────────────────────────────────┐
-# │           360T7 Custom Firmware — Package Selection          │
+# │   360T7 Custom Firmware — Package Selection (no daed)        │
+# │   daed 在刷机后通过 apk add 安装                              │
 # └─────────────────────────────────────────────────────────────┘
 
-# ═══════════ BPF Toolchain (必须 — daed 编译需要) ═══════════
-# daed 的 DEPENDS 包含 @HAS_BPF_TOOLCHAIN
-# BPF_TOOLCHAIN 选项只在 DEVEL 模式下可见
-# 使用 host LLVM 避免从源码编译 LLVM (节省 ~1 小时)
-CONFIG_DEVEL=y
-CONFIG_BPF_TOOLCHAIN_HOST=y
-CONFIG_BPF_TOOLCHAIN_HOST_PATH=""
-
-# ═══════════ daed — eBPF 透明代理 ═══════════
-CONFIG_PACKAGE_daed=y
-CONFIG_PACKAGE_daed-geoip=y
-CONFIG_PACKAGE_daed-geosite=y
-CONFIG_PACKAGE_luci-app-daed=y
-CONFIG_PACKAGE_luci-i18n-daed-zh-cn=y
-CONFIG_PACKAGE_ca-bundle=y
-CONFIG_PACKAGE_kmod-sched-core=y
-CONFIG_PACKAGE_kmod-sched-bpf=y
-CONFIG_PACKAGE_kmod-veth=y
-CONFIG_PACKAGE_kmod-xdp-sockets-diag=y
-
-# ═══════════ 网络加速 (turboacc 在 master 中不存在，用 BBR 替代) ═══════════
+# ═══════════ 网络加速 ═══════════
 CONFIG_PACKAGE_kmod-tcp-bbr=y
 
 # ═══════════ luci-theme-argon — 主题 ═══════════
@@ -67,3 +48,11 @@ CONFIG_PACKAGE_bash=y
 CONFIG_PACKAGE_htop=y
 CONFIG_PACKAGE_nano=y
 CONFIG_PACKAGE_tcpdump=y
+
+# ═══════════ daed 内核依赖（刷机后 apk add daed 需要） ═══════════
+# 预装这些 kmod，刷机后 daed 即可正常工作
+CONFIG_PACKAGE_ca-bundle=y
+CONFIG_PACKAGE_kmod-sched-core=y
+CONFIG_PACKAGE_kmod-sched-bpf=y
+CONFIG_PACKAGE_kmod-veth=y
+CONFIG_PACKAGE_kmod-xdp-sockets-diag=y

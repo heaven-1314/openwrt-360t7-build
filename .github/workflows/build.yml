@@ -65,7 +65,6 @@ jobs:
       # ──────────── 3. Clone source ────────────
       - name: Clone ImmortalWrt source
         run: |
-          # Handle cache collision: openwrt/ may exist from ccache without .git
           if [ -d openwrt ] && [ ! -d openwrt/.git ]; then
             rm -rf openwrt
           fi
@@ -78,14 +77,12 @@ jobs:
           echo "## ImmortalWrt commit" >> $GITHUB_STEP_SUMMARY
           echo "$(git log -1 --format='%H %ci %s')" >> $GITHUB_STEP_SUMMARY
 
-      # ──────────── 4. Feeds (ALL default + kenzok8 vmlinux-btf) ────────────
-      - name: Update and install ALL feeds
+      # ──────────── 4. Feeds (default only, no kenzok8) ────────────
+      - name: Update and install feeds
         run: |
           cd openwrt
-          # CRITICAL: feeds.conf OVERRIDES feeds.conf.default entirely.
-          # Must copy default feeds first, then append custom feed.
+          # Use feeds.conf.default as-is — no custom feeds
           cp feeds.conf.default feeds.conf
-          echo "src-git daede https://github.com/kenzok8/openwrt-daede.git;main" >> feeds.conf
           cat feeds.conf
           ./scripts/feeds update -a
           ./scripts/feeds install -a
@@ -100,7 +97,6 @@ jobs:
       - name: Configure
         run: |
           cd openwrt
-          # Seed: target + profile + user packages in one pass
           cat > .config << 'SEED'
           CONFIG_TARGET_mediatek=y
           CONFIG_TARGET_mediatek_filogic=y
@@ -115,9 +111,6 @@ jobs:
           FAIL=0
           echo "=== Target ==="
           grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_qihoo_360t7=y" .config || { echo "❌ Target missing!"; FAIL=1; }
-          echo "=== daed ==="
-          grep -q "CONFIG_PACKAGE_daed=y" .config || { echo "❌ daed missing!"; FAIL=1; }
-          grep -q "CONFIG_PACKAGE_luci-app-daed=y" .config || { echo "❌ luci-app-daed missing!"; FAIL=1; }
           echo "=== argon ==="
           grep -q "CONFIG_PACKAGE_luci-theme-argon=y" .config || { echo "❌ argon theme missing!"; FAIL=1; }
           echo "=== statistics ==="
@@ -125,27 +118,9 @@ jobs:
           echo "=== adblock-fast ==="
           grep -q "CONFIG_PACKAGE_luci-app-adblock-fast=y" .config || { echo "❌ adblock-fast missing!"; FAIL=1; }
           echo "=== BTF ==="
-          grep -rq "CONFIG_DEBUG_INFO_BTF=y" target/linux/*/config-* 2>/dev/null || echo "⚠️ BTF not found in kernel config (may be handled by vmlinux-btf package)"
-          echo ""
-          echo "========================================"
-          echo "  DIAGNOSTIC DUMP (if packages missing)"
-          echo "========================================"
-          echo "--- BPF/LLVM toolchain config ---"
-          grep -iE "BPF_TOOLCHAIN|LLVM|HAS_BPF|NEED_BPF|DEVEL" .config || echo "(none found)"
-          echo "--- Go/golang config ---"
-          grep -iE "golang|GO_ARCH|GO_PKG" .config | head -10 || echo "(none found)"
-          echo "--- Any 'dae' in config ---"
-          grep -i "dae" .config || echo "(none found)"
-          echo "--- bpf-headers in config ---"
-          grep -i "bpf-headers" .config || echo "(none found)"
-          echo "--- Makefile search: daed ---"
-          find package/ -path "*daed*" -name "Makefile" 2>/dev/null | head -5
-          echo "--- Makefile search: bpf-headers ---"
-          find package/ -path "*bpf-headers*" -name "Makefile" 2>/dev/null | head -5
-          echo "--- feeds.conf ---"
-          cat feeds.conf
+          grep -rq "CONFIG_DEBUG_INFO_BTF=y" target/linux/*/config-* 2>/dev/null || echo "⚠️ BTF not found in kernel config"
           echo "=== Summary ==="
-          [ $FAIL -eq 0 ] && echo "✅ All packages verified" || { echo "❌ Some packages missing — aborting build (see diagnostic above)"; exit 1; }
+          [ $FAIL -eq 0 ] && echo "✅ All packages verified" || { echo "❌ Some packages missing — aborting build"; exit 1; }
 
       # ──────────── 7. Download & Build ────────────
       - name: Download sources
@@ -174,7 +149,6 @@ jobs:
           echo "=== All output files ==="
           ls -lh
           mkdir -p ${{ github.workspace }}/artifacts
-          # Copy ALL firmware files (.itb, .bin, .fip, .manifest, sha256sums)
           cp -v *.itb *.bin *.fip *.manifest *sha256sums* ${{ github.workspace }}/artifacts/ 2>/dev/null || true
           ls -lh ${{ github.workspace }}/artifacts/
 
@@ -185,8 +159,7 @@ jobs:
             echo "✅ sysupgrade firmware found"
             ls -lh artifacts/*360t7*sysupgrade*
           else
-            echo "❌ NO sysupgrade firmware in artifacts!"
-            ls -lh artifacts/
+            echo "❌ NO sysupgrade firmware!"
             exit 1
           fi
 
@@ -194,7 +167,7 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: immortalwrt-360t7-daed
+          name: immortalwrt-360t7
           path: artifacts/*
           retention-days: 30
           compression-level: 0
@@ -206,6 +179,11 @@ jobs:
           if ls openwrt/bin/targets/$TARGET/$SUBTARGET/*360t7*sysupgrade* 1>/dev/null 2>&1; then
             echo "✅ **SUCCESS** — firmware built!" >> $GITHUB_STEP_SUMMARY
             ls -lh openwrt/bin/targets/$TARGET/$SUBTARGET/*360t7*sysupgrade* >> $GITHUB_STEP_SUMMARY 2>&1
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### 刷机后安装 daed:" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "apk update && apk add daed luci-app-daed" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
           else
             echo "❌ **FAILED** — no sysupgrade firmware" >> $GITHUB_STEP_SUMMARY
           fi
