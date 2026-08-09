@@ -78,9 +78,11 @@ jobs:
       - name: Update and install ALL feeds
         run: |
           cd openwrt
-          # Add kenzok8 feed for vmlinux-btf
+          # CRITICAL: feeds.conf OVERRIDES feeds.conf.default entirely.
+          # Must copy default feeds first, then append custom feed.
+          cp feeds.conf.default feeds.conf
           echo "src-git daede https://github.com/kenzok8/openwrt-daede.git;main" >> feeds.conf
-          # Update ALL feeds (packages, luci, routing, telephony, daede)
+          cat feeds.conf
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
