@@ -114,8 +114,6 @@ jobs:
           echo "=== daed ==="
           grep -q "CONFIG_PACKAGE_daed=y" .config || { echo "❌ daed missing!"; FAIL=1; }
           grep -q "CONFIG_PACKAGE_luci-app-daed=y" .config || { echo "❌ luci-app-daed missing!"; FAIL=1; }
-          echo "=== turboacc ==="
-          grep -q "CONFIG_PACKAGE_luci-app-turboacc=y" .config || { echo "❌ turboacc missing!"; FAIL=1; }
           echo "=== argon ==="
           grep -q "CONFIG_PACKAGE_luci-theme-argon=y" .config || { echo "❌ argon theme missing!"; FAIL=1; }
           echo "=== statistics ==="

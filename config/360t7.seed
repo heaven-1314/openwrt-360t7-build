@@ -3,10 +3,12 @@
 # └─────────────────────────────────────────────────────────────┘
 
 # ═══════════ BPF Toolchain (必须 — daed 编译需要) ═══════════
-# daed 的 DEPENDS 包含 @HAS_BPF_TOOLCHAIN，没有这个选项
-# make defconfig 会静默移除 daed 包
-CONFIG_USE_LLVM_HOST=y
-CONFIG_NEED_BPF_TOOLCHAIN=y
+# daed 的 DEPENDS 包含 @HAS_BPF_TOOLCHAIN
+# BPF_TOOLCHAIN 选项只在 DEVEL 模式下可见
+# 使用 host LLVM 避免从源码编译 LLVM (节省 ~1 小时)
+CONFIG_DEVEL=y
+CONFIG_BPF_TOOLCHAIN_HOST=y
+CONFIG_BPF_TOOLCHAIN_HOST_PATH=""
 
 # ═══════════ daed — eBPF 透明代理 ═══════════
 CONFIG_PACKAGE_daed=y
