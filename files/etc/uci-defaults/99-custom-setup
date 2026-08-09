@@ -1,0 +1,20 @@
+#!/bin/sh
+# First-boot customization script
+# Runs once on initial boot after sysupgrade
+
+# Set root password
+echo "root:15520223738" | chpasswd 2>/dev/null || true
+
+# Switch APK feeds to PKU mirror (faster in China)
+if [ -f /etc/apk/repositories.d/distfeeds.list ]; then
+    sed -i 's|downloads.immortalwrt.org/snapshots|mirrors.pku.edu.cn/immortalwrt/snapshots|g' \
+        /etc/apk/repositories.d/distfeeds.list
+fi
+
+# Enable daed service
+/etc/init.d/daed enable 2>/dev/null || true
+
+# Remove this script after running
+rm -f /etc/uci-defaults/99-custom-setup
+
+exit 0

@@ -7,6 +7,7 @@ on:
       - '.github/workflows/build.yml'
       - 'config/**'
       - 'scripts/**'
+      - 'files/**'
 
 env:
   IMM_REPO: https://github.com/immortalwrt/immortalwrt.git
@@ -25,7 +26,6 @@ jobs:
     timeout-minutes: 600
 
     steps:
-      # ──────────── 1. Environment ────────────
       - name: Maximize disk space
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
@@ -48,7 +48,6 @@ jobs:
       - name: Checkout project
         uses: actions/checkout@v4
 
-      # ──────────── 2. Cache ────────────
       - name: Generate cache key
         id: cache-key
         run: |
@@ -62,7 +61,6 @@ jobs:
           key: ccache-360t7-${{ steps.cache-key.outputs.date }}-${{ steps.cache-key.outputs.sha }}
           restore-keys: ccache-360t7-${{ steps.cache-key.outputs.date }}-
 
-      # ──────────── 3. Clone source ────────────
       - name: Clone ImmortalWrt source
         run: |
           if [ -d openwrt ] && [ ! -d openwrt/.git ]; then
@@ -77,23 +75,25 @@ jobs:
           echo "## ImmortalWrt commit" >> $GITHUB_STEP_SUMMARY
           echo "$(git log -1 --format='%H %ci %s')" >> $GITHUB_STEP_SUMMARY
 
-      # ──────────── 4. Feeds (default only, no kenzok8) ────────────
       - name: Update and install feeds
         run: |
           cd openwrt
-          # Use feeds.conf.default as-is — no custom feeds
           cp feeds.conf.default feeds.conf
           cat feeds.conf
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      # ──────────── 5. Patch kernel ────────────
+      - name: Copy pre-configured files into build tree
+        run: |
+          cp -rv ${{ github.workspace }}/files openwrt/
+          echo "=== Custom files ==="
+          find openwrt/files -type f | sort
+
       - name: Patch kernel for BTF + full BPF support
         run: |
           cd openwrt
           bash ${{ github.workspace }}/scripts/patch-kernel.sh
 
-      # ──────────── 6. Configure ────────────
       - name: Configure
         run: |
           cd openwrt
@@ -111,18 +111,29 @@ jobs:
           FAIL=0
           echo "=== Target ==="
           grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_qihoo_360t7=y" .config || { echo "❌ Target missing!"; FAIL=1; }
+          echo "=== daed ==="
+          grep -q "CONFIG_PACKAGE_daed=y" .config || { echo "❌ daed missing!"; FAIL=1; }
+          grep -q "CONFIG_PACKAGE_luci-app-daed=y" .config || { echo "❌ luci-app-daed missing!"; FAIL=1; }
+          echo "=== BPF toolchain ==="
+          grep -q "CONFIG_BPF_TOOLCHAIN_HOST=y" .config || echo "⚠️ BPF_TOOLCHAIN_HOST not in .config"
+          echo "=== Chinese i18n ==="
+          grep -q "CONFIG_PACKAGE_luci-i18n-base-zh-cn=y" .config || { echo "❌ base-zh-cn missing!"; FAIL=1; }
           echo "=== argon ==="
           grep -q "CONFIG_PACKAGE_luci-theme-argon=y" .config || { echo "❌ argon theme missing!"; FAIL=1; }
           echo "=== statistics ==="
           grep -q "CONFIG_PACKAGE_luci-app-statistics=y" .config || { echo "❌ statistics missing!"; FAIL=1; }
           echo "=== adblock-fast ==="
           grep -q "CONFIG_PACKAGE_luci-app-adblock-fast=y" .config || { echo "❌ adblock-fast missing!"; FAIL=1; }
-          echo "=== BTF ==="
-          grep -rq "CONFIG_DEBUG_INFO_BTF=y" target/linux/*/config-* 2>/dev/null || echo "⚠️ BTF not found in kernel config"
+          echo "=== BTF kernel ==="
+          grep -rq "CONFIG_DEBUG_INFO=y" target/linux/*/config-* 2>/dev/null || echo "⚠️ CONFIG_DEBUG_INFO not in kernel config"
+          grep -rq "CONFIG_DEBUG_INFO_BTF=y" target/linux/*/config-* 2>/dev/null || echo "⚠️ CONFIG_DEBUG_INFO_BTF not in kernel config"
+          echo "=== Pre-config files ==="
+          [ -f files/etc/config/wireless ] && echo "✓ wireless" || echo "❌ wireless missing"
+          [ -f files/etc/config/daed ] && echo "✓ daed" || echo "❌ daed config missing"
+          [ -f files/etc/daed/wing.db ] && echo "✓ wing.db" || echo "❌ wing.db missing"
           echo "=== Summary ==="
           [ $FAIL -eq 0 ] && echo "✅ All packages verified" || { echo "❌ Some packages missing — aborting build"; exit 1; }
 
-      # ──────────── 7. Download & Build ────────────
       - name: Download sources
         run: |
           cd openwrt
@@ -141,7 +152,6 @@ jobs:
           cd openwrt
           tail -300 build.log 2>/dev/null || true
 
-      # ──────────── 8. Collect & Upload ────────────
       - name: Collect firmware artifacts
         if: success()
         run: |
@@ -152,7 +162,7 @@ jobs:
           cp -v *.itb *.bin *.fip *.manifest *sha256sums* ${{ github.workspace }}/artifacts/ 2>/dev/null || true
           ls -lh ${{ github.workspace }}/artifacts/
 
-      - name: Verify sysupgrade exists — FAIL if not
+      - name: Verify sysupgrade exists
         if: success()
         run: |
           if ls artifacts/*360t7*sysupgrade* 1>/dev/null 2>&1; then
@@ -167,7 +177,7 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: immortalwrt-360t7
+          name: immortalwrt-360t7-final
           path: artifacts/*
           retention-days: 30
           compression-level: 0
@@ -180,10 +190,9 @@ jobs:
             echo "✅ **SUCCESS** — firmware built!" >> $GITHUB_STEP_SUMMARY
             ls -lh openwrt/bin/targets/$TARGET/$SUBTARGET/*360t7*sysupgrade* >> $GITHUB_STEP_SUMMARY 2>&1
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "### 刷机后安装 daed:" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            echo "apk update && apk add daed luci-app-daed" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "### 刷机:" >> $GITHUB_STEP_SUMMARY
+            echo "sysupgrade -n /tmp/sysupgrade.itb (首次不保留配置)" >> $GITHUB_STEP_SUMMARY
+            echo "所有配置已预装（WiFi/IPv6/daed/中文/防火墙）" >> $GITHUB_STEP_SUMMARY
           else
             echo "❌ **FAILED** — no sysupgrade firmware" >> $GITHUB_STEP_SUMMARY
           fi
