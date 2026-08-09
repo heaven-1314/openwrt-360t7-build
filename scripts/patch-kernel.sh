@@ -9,7 +9,7 @@ OPENWRT_DIR="${1:-openwrt}"
 
 # ── Detect kernel version from config filenames ──
 KVER=""
-for f in target/linux/generic/config-*; do
+for f in target/linux/generic/config-[0-9]*; do
   v=$(basename "$f" | sed 's/config-//')
   if [ -z "$KVER" ] || [ "$(printf '%s\n%s\n' "$KVER" "$v" | sort -V | tail -1)" = "$v" ]; then
     KVER="$v"
