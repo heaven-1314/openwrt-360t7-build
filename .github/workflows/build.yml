@@ -85,10 +85,20 @@ jobs:
       # ──────────────────────── 3. Clone ImmortalWrt ────────────────────────
       - name: Clone ImmortalWrt source
         run: |
-          if [ ! -d openwrt/.git ]; then
-            git clone --depth=1 --branch "$IMM_BRANCH" "$IMM_REPO" openwrt
-          else
+          # Handle cache collision: openwrt/ may exist from toolchain cache without .git
+          if [ -d openwrt/tmp ] && [ ! -d openwrt/.git ]; then
+            mv openwrt/tmp /tmp/toolchain-cache
+            rm -rf openwrt
+          fi
+          if [ -d openwrt/.git ]; then
             cd openwrt && git pull --ff-only origin "$IMM_BRANCH"
+          else
+            git clone --depth=1 --branch "$IMM_BRANCH" "$IMM_REPO" openwrt
+          fi
+          # Restore cached toolchain
+          if [ -d /tmp/toolchain-cache ]; then
+            mkdir -p openwrt/tmp
+            cp -a /tmp/toolchain-cache/. openwrt/tmp/
           fi
           cd openwrt
           echo "## ImmortalWrt commit" >> $GITHUB_STEP_SUMMARY
