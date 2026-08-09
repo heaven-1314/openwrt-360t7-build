@@ -126,8 +126,26 @@ jobs:
           grep -q "CONFIG_PACKAGE_luci-app-adblock-fast=y" .config || { echo "❌ adblock-fast missing!"; FAIL=1; }
           echo "=== BTF ==="
           grep -rq "CONFIG_DEBUG_INFO_BTF=y" target/linux/*/config-* 2>/dev/null || echo "⚠️ BTF not found in kernel config (may be handled by vmlinux-btf package)"
+          echo ""
+          echo "========================================"
+          echo "  DIAGNOSTIC DUMP (if packages missing)"
+          echo "========================================"
+          echo "--- BPF/LLVM toolchain config ---"
+          grep -iE "BPF_TOOLCHAIN|LLVM|HAS_BPF|NEED_BPF|DEVEL" .config || echo "(none found)"
+          echo "--- Go/golang config ---"
+          grep -iE "golang|GO_ARCH|GO_PKG" .config | head -10 || echo "(none found)"
+          echo "--- Any 'dae' in config ---"
+          grep -i "dae" .config || echo "(none found)"
+          echo "--- bpf-headers in config ---"
+          grep -i "bpf-headers" .config || echo "(none found)"
+          echo "--- Makefile search: daed ---"
+          find package/ -path "*daed*" -name "Makefile" 2>/dev/null | head -5
+          echo "--- Makefile search: bpf-headers ---"
+          find package/ -path "*bpf-headers*" -name "Makefile" 2>/dev/null | head -5
+          echo "--- feeds.conf ---"
+          cat feeds.conf
           echo "=== Summary ==="
-          [ $FAIL -eq 0 ] && echo "✅ All packages verified" || { echo "❌ Some packages missing — aborting build"; exit 1; }
+          [ $FAIL -eq 0 ] && echo "✅ All packages verified" || { echo "❌ Some packages missing — aborting build (see diagnostic above)"; exit 1; }
 
       # ──────────── 7. Download & Build ────────────
       - name: Download sources
