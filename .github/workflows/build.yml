@@ -95,10 +95,15 @@ jobs:
           echo "$(git log -1 --format='%H %ci %s')" >> $GITHUB_STEP_SUMMARY
 
       # ──────────────────────── 4. Custom feeds ────────────────────────
-      - name: Add kenzok8/openwrt-daede feed
+      - name: Add kenzok8/openwrt-daede feed (vmlinux-btf only)
         run: |
           cd openwrt
-          bash ${{ github.workspace }}/scripts/setup-feeds.sh
+          # kenzok8's dae/daed packages are incompatible with ImmortalWrt master (kernel 6.18.x)
+          # We only use kenzok8's vmlinux-btf package as a BTF fallback
+          # ImmortalWrt's built-in daed is used instead
+          echo "src-git daede https://github.com/kenzok8/openwrt-daede.git;main" >> feeds.conf
+          ./scripts/feeds update daede
+          ./scripts/feeds install -p daede vmlinux-btf
 
       # ──────────────────────── 5. Patch kernel ────────────────────────
       - name: Patch kernel for BTF + full BPF support
