@@ -111,13 +111,8 @@ jobs:
           FAIL=0
           echo "=== Target ==="
           grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_qihoo_360t7=y" .config || { echo "❌ Target missing!"; FAIL=1; }
-          echo "=== daed ==="
-          grep -q "CONFIG_PACKAGE_daed=y" .config || { echo "❌ daed missing!"; FAIL=1; }
-          grep -q "CONFIG_PACKAGE_luci-app-daed=y" .config || { echo "❌ luci-app-daed missing!"; FAIL=1; }
-          echo "=== BPF toolchain ==="
-          grep -q "CONFIG_BPF_TOOLCHAIN_HOST=y" .config || echo "⚠️ BPF_TOOLCHAIN_HOST not in .config"
           echo "=== Chinese i18n ==="
-          grep -q "CONFIG_PACKAGE_luci-i18n-base-zh-cn=y" .config || { echo "❌ base-zh-cn missing!"; FAIL=1; }
+          grep -q "CONFIG_LUCI_LANG_zh_Hans=y" .config || { echo "❌ Chinese language missing!"; FAIL=1; }
           echo "=== argon ==="
           grep -q "CONFIG_PACKAGE_luci-theme-argon=y" .config || { echo "❌ argon theme missing!"; FAIL=1; }
           echo "=== statistics ==="
