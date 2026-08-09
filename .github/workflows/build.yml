@@ -160,14 +160,10 @@ jobs:
       - name: Build firmware
         run: |
           cd openwrt
-          # Use ccache for faster rebuilds
+          set -o pipefail
           export CCACHE_DIR=~/.ccache
-          # First attempt: parallel build
-          if ! make -j$(nproc) V=s 2>&1 | tee build.log | tail -50; then
-            echo "## Parallel build failed, retrying single-threaded..."
-            # Second attempt: single-threaded for better error visibility
-            make -j1 V=s 2>&1 | tee -a build.log | tail -100
-          fi
+          # Parallel build with proper exit code checking
+          make -j$(nproc) V=s 2>&1 | tee build.log | tail -80
 
       - name: Show build log on failure
         if: failure()
